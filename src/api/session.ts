@@ -39,7 +39,8 @@ export async function fetchSessionList(
   const url = new URL(api.chat.sessionList)
   url.searchParams.set('user_id', params.userId)
   url.searchParams.set('page', String(page))
-  url.searchParams.set('pageSize', String(pageSize))
+  // 后端 FastAPI 定义的查询参数名为 snake_case 的 page_size
+  url.searchParams.set('page_size', String(pageSize))
 
   const response = await fetch(url.toString(), { method: 'GET' })
 

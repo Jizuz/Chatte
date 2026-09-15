@@ -46,7 +46,7 @@ export function LoginModal({ open, onClose, onSubmit }: LoginModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-head">
-          <h2 id="login-title">登录 Chatte</h2>
+          <h2 id="login-title">登录 灵医智能</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭">
             <X size={18} />
           </button>

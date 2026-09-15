@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useState } from 'react'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { Header } from './components/Header'
 import { LoginModal } from './components/LoginModal'
 import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
+import { KnowledgeBasePage } from './pages/KnowledgeBasePage'
 import { useAuth } from './hooks/useAuth'
 import { fetchChatReply } from './api/chat'
 import { closeSession, fetchSessionHistory } from './api/session'
@@ -51,11 +53,11 @@ function App() {
     }
   }, [isAuthenticated, newSessionId, activeId])
 
-  const isActiveSession = (sessionId: string) => {
-    const session = sessions.find((s) => s.sessionId === sessionId)
-    if (session) return session.status === 'active'
-    return messages.some((m) => m.conversationId === sessionId)
-  }
+  // const isActiveSession = (sessionId: string) => {
+  //   const session = sessions.find((s) => s.sessionId === sessionId)
+  //   if (session) return session.status === 'active'
+  //   return messages.some((m) => m.conversationId === sessionId)
+  // }
 
   const handleLogout = async () => {
     // 只关闭登录后创建的新会话，不关闭历史会话
@@ -205,13 +207,19 @@ function App() {
 
     appendMessage(sessionId, user.id, content)
 
+    let agentSessionId = sessionId
     try {
       const savedData = await persistMessage(sessionId, 0, content)
       setSessionListRefreshToken((t) => t + 1)
-      
+
       // 如果是新会话，使用从接口返回的session_id更新newSessionId
       if (isNewSession && !isHistoricalSession && savedData && savedData.session_id) {
         setNewSessionId(savedData.session_id)
+      }
+
+      // /chat/agent 需要 message/save 返回的服务端 session_id（新会话时本地 id 为空，后端会 500）
+      if (savedData?.session_id) {
+        agentSessionId = savedData.session_id
       }
     } catch (error) {
       console.warn('用户消息保存失败:', error)
@@ -220,7 +228,11 @@ function App() {
     setSending(true)
 
     try {
-      const reply = await fetchChatReply(content)
+      const { reply, need_emergency, active_agent } = await fetchChatReply(content, agentSessionId)
+      // 接口附加信息：是否需要紧急介入、当前生效的智能体
+      if (need_emergency || active_agent) {
+        console.info('[chat] need_emergency:', need_emergency, 'active_agent:', active_agent)
+      }
       appendMessage(sessionId, peerId, reply)
       try {
         const savedReplyData = await persistMessage(sessionId, 1, reply)
@@ -259,51 +271,59 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <Header
-        user={user}
-        onLoginClick={() => setLoginOpen(true)}
-        onLogout={handleLogout}
-      />
+    <Router>
+      <div className="app-shell">
+        <Header
+          user={user}
+          onLoginClick={() => setLoginOpen(true)}
+          onLogout={handleLogout}
+        />
 
-      <main className="app-main">
-        {!isAuthenticated ? (
-          <div className="guest-banner">
-            你正在以访客浏览。登录后可发送消息。
-            <button type="button" className="link-btn" onClick={() => setLoginOpen(true)}>
-              立即登录
-            </button>
-          </div>
-        ) : null}
+        <Routes>
+          <Route path="/" element={
+            <main className="app-main">
+              {!isAuthenticated ? (
+                <div className="guest-banner">
+                  你正在以访客浏览。登录后可发送消息。
+                  <button type="button" className="link-btn" onClick={() => setLoginOpen(true)}>
+                    立即登录
+                  </button>
+                </div>
+              ) : null}
 
-        <div className="workspace">
-          <ConversationList
-            userId={user?.id ?? null}
-            activeId={activeId}
-            onSelect={handleSelect}
-            onSessionsLoaded={handleSessionsLoaded}
-            locked={!isAuthenticated}
-            refreshToken={sessionListRefreshToken}
-          />
-          <ChatWindow
-            peer={activePeer}
-            messages={activeMessages}
-            currentUserId={user?.id}
-            locked={!isAuthenticated}
-            sending={sending}
-            loadingHistory={loadingHistory}
-            sessionClosed={currentSession?.status === 'closed'}
-            onSend={handleSend}
-          />
-        </div>
-      </main>
+              <div className="workspace">
+                <ConversationList
+                  userId={user?.id ?? null}
+                  activeId={activeId}
+                  onSelect={handleSelect}
+                  onSessionsLoaded={handleSessionsLoaded}
+                  locked={!isAuthenticated}
+                  refreshToken={sessionListRefreshToken}
+                />
+                <ChatWindow
+                  peer={activePeer}
+                  messages={activeMessages}
+                  currentUserId={user?.id}
+                  locked={!isAuthenticated}
+                  sending={sending}
+                  loadingHistory={loadingHistory}
+                  sessionClosed={currentSession?.status === 'closed'}
+                  onSend={handleSend}
+                />
+              </div>
+            </main>
+          } />
+          
+          <Route path="/knowledge-base" element={<KnowledgeBasePage onClose={() => {}} />} />
+        </Routes>
 
-      <LoginModal
-        open={loginOpen}
-        onClose={() => setLoginOpen(false)}
-        onSubmit={login}
-      />
-    </div>
+        <LoginModal
+          open={loginOpen}
+          onClose={() => setLoginOpen(false)}
+          onSubmit={login}
+        />
+      </div>
+    </Router>
   )
 }
 

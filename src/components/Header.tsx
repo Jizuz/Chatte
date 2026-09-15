@@ -11,11 +11,14 @@ export function Header({ user, onLoginClick, onLogout }: HeaderProps) {
   return (
     <header className="app-header">
       <div className="brand">
-        <span className="brand-mark" aria-hidden />
-        <span className="brand-name">Chatte</span>
+        <span className="brand-name">灵医智能</span>
       </div>
-
+      
       <div className="header-auth">
+        <a href="/knowledge-base" className="btn btn-secondary">
+          知识库管理
+        </a>
+
         {user ? (
           <>
             <div className="user-chip">
