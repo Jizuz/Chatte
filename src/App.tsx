@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { Header } from './components/Header'
 import { LoginModal } from './components/LoginModal'
@@ -6,7 +6,7 @@ import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
 import { KnowledgeBasePage } from './pages/KnowledgeBasePage'
 import { useAuth } from './hooks/useAuth'
-import { fetchChatReply } from './api/chat'
+import { streamChatReply } from './api/chat'
 import { closeSession, fetchSessionHistory } from './api/session'
 import { saveChatMessage } from './api/message'
 import { BOT_PEER } from './data/mock'
@@ -24,6 +24,10 @@ function App() {
   const [currentSession, setCurrentSession] = useState<Session | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [newSessionId, setNewSessionId] = useState<string | null>(null)
+  /** 正在进行的流式请求控制器，用于退出登录等场景中断 */
+  const streamAbortRef = useRef<AbortController | null>(null)
+  /** 本次运行期间实时聊过天的会话 id 集合：切回这些会话时直接用本地实时消息，不查数据库 */
+  const liveSessionIdsRef = useRef<Set<string>>(new Set())
 
   const activePeer = isAuthenticated ? BOT_PEER : null
 
@@ -37,13 +41,11 @@ function App() {
 
   const handleSessionsLoaded = useCallback((loaded: Session[]) => {
     setSessions(loaded)
-    // 登录后不自动选中会话，保持activeId为null
-    if (isAuthenticated) {
-      setActiveId(null)
-    } else {
+    // 登录后不自动选中首个会话（activeId 初始为 null）；
+    if (!isAuthenticated) {
       setActiveId((current) => current ?? loaded[0]?.sessionId ?? null)
     }
-    
+
     // 如果有新创建的会话且尚未选中，选中最新创建的会话
     if (newSessionId && !activeId) {
       const newSession = loaded.find(s => s.sessionId === newSessionId)
@@ -60,6 +62,9 @@ function App() {
   // }
 
   const handleLogout = async () => {
+    // 中断进行中的流式回复
+    streamAbortRef.current?.abort()
+
     // 只关闭登录后创建的新会话，不关闭历史会话
     if (user && newSessionId) {
       try {
@@ -76,6 +81,7 @@ function App() {
     setSessionListRefreshToken(0)
     setCurrentSession(null)
     setNewSessionId(null)
+    liveSessionIdsRef.current.clear()
   }
 
   const handleSelect = async (sessionId: string) => {
@@ -90,7 +96,12 @@ function App() {
     const selectedSession = sessions.find((s) => s.sessionId === sessionId)
     setCurrentSession(selectedSession || null)
     
-    // 如果是已存在的会话，加载历史消息
+    // 当前实时会话（本次聊过天 / 本次新建）：直接使用本地实时消息，不查数据库
+    if (liveSessionIdsRef.current.has(sessionId) || sessionId === newSessionId) {
+      return
+    }
+
+    // 历史会话：从数据库加载历史消息
     if (selectedSession && user) {
       await loadSessionHistory(user.id, sessionId)
     } else {
@@ -155,7 +166,7 @@ function App() {
     conversationId: string | null,
     senderId: string,
     content: string,
-  ) => {
+  ): string => {
     const id = `m-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
     const timestamp = new Date().toISOString()
     const next: Message = {
@@ -166,7 +177,13 @@ function App() {
       timestamp,
     }
     setMessages((prev) => [...prev, next])
+    return id
   }
+
+  /** 更新已存在消息的内容（用于流式回复增量填充） */
+  const updateMessageContent = useCallback((messageId: string, content: string) => {
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, content } : m)))
+  }, [])
 
   const persistMessage = async (
     sessionId: string | null,
@@ -191,35 +208,44 @@ function App() {
       return
     }
 
-    const sessionId = activeId
     const isNewSession = !activeId
+    // 新会话：生成本地临时会话 id，保证消息有稳定归属；
+    const localSessionId = `local-session-${Date.now()}`
+    let sessionId = isNewSession ? localSessionId : activeId
     const isHistoricalSession = sessions.some((s) => s.sessionId === sessionId)
-    
+
     if (isNewSession) {
-      setActiveId(sessionId)
-      // 只有在创建真正的新会话时才记录，历史会话不记录
-      // if (!isHistoricalSession) {
-      setNewSessionId(sessionId)
-      // }
+      setActiveId(localSessionId)
     }
 
     const peerId = BOT_PEER.id
 
+    // 标记为「实时会话」：之后切回该会话直接展示本地实时消息，不再查数据库
+    liveSessionIdsRef.current.add(sessionId)
+
     appendMessage(sessionId, user.id, content)
 
-    let agentSessionId = sessionId
+    // 服务端会话 id：新会话首轮传 null 由服务端创建，其余传当前会话 id
+    let agentSessionId = isNewSession ? null : sessionId
     try {
-      const savedData = await persistMessage(sessionId, 0, content)
+      const savedData = await persistMessage(agentSessionId, 0, content)
       setSessionListRefreshToken((t) => t + 1)
 
-      // 如果是新会话，使用从接口返回的session_id更新newSessionId
-      if (isNewSession && !isHistoricalSession && savedData && savedData.session_id) {
-        setNewSessionId(savedData.session_id)
-      }
-
-      // /chat/agent 需要 message/save 返回的服务端 session_id（新会话时本地 id 为空，后端会 500）
+      // /chat/agent 与后续保存都需要 message/save 返回的服务端 session_id
       if (savedData?.session_id) {
         agentSessionId = savedData.session_id
+
+        // 新会话：把本地临时会话的消息迁移到服务端会话 id，并选中该会话
+        if (isNewSession && !isHistoricalSession) {
+          const serverSessionId = savedData.session_id
+          setMessages((prev) =>
+            prev.map((m) => (m.conversationId === localSessionId ? { ...m, conversationId: serverSessionId } : m)),
+          )
+          setActiveId(serverSessionId)
+          setNewSessionId(serverSessionId)
+          liveSessionIdsRef.current.add(serverSessionId)
+          sessionId = serverSessionId
+        }
       }
     } catch (error) {
       console.warn('用户消息保存失败:', error)
@@ -227,17 +253,34 @@ function App() {
 
     setSending(true)
 
+    // 先创建一条空的机器人消息，随后通过 SSE 增量填充内容
+    const botMessageId = appendMessage(sessionId, peerId, '')
+    let streamed = ''
+
+    const controller = new AbortController()
+    streamAbortRef.current = controller
+
     try {
-      const { reply, need_emergency, active_agent } = await fetchChatReply(content, agentSessionId)
-      // 接口附加信息：是否需要紧急介入、当前生效的智能体
-      if (need_emergency || active_agent) {
-        console.info('[chat] need_emergency:', need_emergency, 'active_agent:', active_agent)
-      }
-      appendMessage(sessionId, peerId, reply)
+      const { reply } = await streamChatReply(content, agentSessionId, user.id, {
+        signal: controller.signal,
+        onDelta: (delta) => {
+          streamed += delta
+          updateMessageContent(botMessageId, streamed)
+        },
+        onMeta: (meta) => {
+          // 接口附加信息：是否需要紧急介入、当前生效的智能体
+          if (meta.need_emergency || meta.active_agent) {
+            console.info('[chat] need_emergency:', meta.need_emergency, 'active_agent:', meta.active_agent)
+          }
+        },
+      })
+      // 兜底：后端可能未以 SSE 返回（回退整体解析），确保消息内容被填充
+      updateMessageContent(botMessageId, reply)
       try {
-        const savedReplyData = await persistMessage(sessionId, 1, reply)
+        // 使用服务端会话 id 保存，避免新会话首轮在服务端另建会话
+        const savedReplyData = await persistMessage(agentSessionId, 1, reply)
         setSessionListRefreshToken((t) => t + 1)
-        
+
         // 如果是新会话，使用从接口返回的session_id更新newSessionId
         if (isNewSession && !isHistoricalSession && savedReplyData?.session_id) {
           setNewSessionId(savedReplyData.session_id)
@@ -246,15 +289,22 @@ function App() {
         console.warn('AI 消息保存失败:', error)
       }
     } catch (error) {
+      // 主动中断（如退出登录）：保留已流出的部分内容，不再标记为错误
+      if (error instanceof Error && error.name === 'AbortError') {
+        updateMessageContent(botMessageId, streamed || '（回复已取消）')
+        return
+      }
       const message =
         error instanceof Error ? error.message : '请求聊天接口失败'
-      appendMessage(sessionId, peerId, `⚠️ ${message}`)
+      const finalText = streamed ? `${streamed}\n\n⚠️ ${message}` : `⚠️ ${message}`
+      updateMessageContent(botMessageId, finalText)
       try {
-        await persistMessage(sessionId, 1, `⚠️ ${message}`)
+        await persistMessage(agentSessionId, 1, finalText)
       } catch (saveError) {
         console.warn('错误消息保存失败:', saveError)
       }
     } finally {
+      streamAbortRef.current = null
       setSending(false)
       
       // 确保新创建的会话被选中

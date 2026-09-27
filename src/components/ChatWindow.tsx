@@ -69,22 +69,31 @@ export function ChatWindow({
       <div className="message-scroller">
         {messages.map((m) => {
           const mine = currentUserId != null && m.senderId === currentUserId
+          // 流式回复尚未收到任何内容时，显示「正在回复」占位
+          const isPendingReply = !mine && sending && !m.content
           return (
             <div key={m.id} className={`message ${mine ? 'is-mine' : 'is-theirs'}`}>
-              <div className="bubble">
-                <p>{m.content}</p>
+              <div className={`bubble ${isPendingReply ? 'is-typing' : ''}`}>
+                <p>{isPendingReply ? '对方正在回复…' : m.content}</p>
                 <time>{formatMessageTime(m.timestamp)}</time>
               </div>
             </div>
           )
         })}
-        {sending ? (
-          <div className="message is-theirs">
-            <div className="bubble is-typing">
-              <p>对方正在回复…</p>
+        {(() => {
+          // 流式气泡（对方消息）已存在时不再重复显示底部占位
+          const lastMessage = messages[messages.length - 1]
+          const hasStreamingBubble =
+            lastMessage != null && currentUserId != null && lastMessage.senderId !== currentUserId
+          if (!sending || hasStreamingBubble) return null
+          return (
+            <div className="message is-theirs">
+              <div className="bubble is-typing">
+                <p>对方正在回复…</p>
+              </div>
             </div>
-          </div>
-        ) : null}
+          )
+        })()}
         <div ref={bottomRef} />
       </div>
 
