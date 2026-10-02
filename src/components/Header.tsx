@@ -16,7 +16,7 @@ export function Header({ user, onLoginClick, onLogout }: HeaderProps) {
       
       <div className="header-auth">
         <a href="/knowledge-base" className="btn btn-secondary">
-          知识库管理
+          知识库管理后台
         </a>
 
         {user ? (

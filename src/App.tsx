@@ -4,7 +4,7 @@ import { Header } from './components/Header'
 import { LoginModal } from './components/LoginModal'
 import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
-import { KnowledgeBasePage } from './pages/KnowledgeBasePage'
+import { AdminDocListPage } from './pages/AdminDocListPage'
 import { useAuth } from './hooks/useAuth'
 import { streamChatReply } from './api/chat'
 import { closeSession, fetchSessionHistory } from './api/session'
@@ -54,12 +54,6 @@ function App() {
       }
     }
   }, [isAuthenticated, newSessionId, activeId])
-
-  // const isActiveSession = (sessionId: string) => {
-  //   const session = sessions.find((s) => s.sessionId === sessionId)
-  //   if (session) return session.status === 'active'
-  //   return messages.some((m) => m.conversationId === sessionId)
-  // }
 
   const handleLogout = async () => {
     // 中断进行中的流式回复
@@ -364,7 +358,7 @@ function App() {
             </main>
           } />
           
-          <Route path="/knowledge-base" element={<KnowledgeBasePage onClose={() => {}} />} />
+          <Route path="/knowledge-base" element={<AdminDocListPage />} />
         </Routes>
 
         <LoginModal
