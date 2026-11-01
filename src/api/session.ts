@@ -1,5 +1,6 @@
 import { api, app } from '../config'
 import type { Session, SessionListData, SessionHistoryData } from '../types'
+import { authFetch } from './http'
 
 interface ApiResponse<T> {
   code: number
@@ -8,7 +9,6 @@ interface ApiResponse<T> {
 }
 
 export interface FetchSessionListParams {
-  userId: string
   page?: number
   pageSize?: number
 }
@@ -37,12 +37,11 @@ export async function fetchSessionList(
   const pageSize = params.pageSize ?? app.sessionListPageSize
 
   const url = new URL(api.chat.sessionList)
-  url.searchParams.set('user_id', params.userId)
   url.searchParams.set('page', String(page))
   // 后端 FastAPI 定义的查询参数名为 snake_case 的 page_size
   url.searchParams.set('page_size', String(pageSize))
 
-  const response = await fetch(url.toString(), { method: 'GET' })
+  const response = await authFetch(url.toString(), { method: 'GET' })
 
   if (!response.ok) {
     throw new Error(`会话列表请求失败（${response.status}）`)
@@ -69,19 +68,17 @@ export async function fetchSessionList(
 }
 
 export interface CloseSessionParams {
-  userId: string
   sessionId: string
 }
 
-/** POST /chat/session/close */
+/** POST /chat/session/close（身份取自令牌） */
 export async function closeSession(params: CloseSessionParams): Promise<void> {
-  const response = await fetch(api.chat.sessionClose, {
+  const response = await authFetch(api.chat.sessionClose, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json; charset=UTF-8',
     },
     body: JSON.stringify({
-      user_id: params.userId,
       session_id: params.sessionId,
     }),
   })
@@ -97,19 +94,17 @@ export async function closeSession(params: CloseSessionParams): Promise<void> {
 }
 
 export interface FetchSessionHistoryParams {
-  userId: string
   sessionId: string
 }
 
-/** GET /chat/session/history */
+/** GET /chat/session/history（仅属主可查） */
 export async function fetchSessionHistory(
   params: FetchSessionHistoryParams,
 ): Promise<SessionHistoryData> {
   const url = new URL(api.chat.sessionHistory)
-  url.searchParams.set('user_id', params.userId)
   url.searchParams.set('session_id', params.sessionId)
 
-  const response = await fetch(url.toString(), { method: 'GET' })
+  const response = await authFetch(url.toString(), { method: 'GET' })
 
   if (!response.ok) {
     throw new Error(`会话历史请求失败（${response.status}）`)

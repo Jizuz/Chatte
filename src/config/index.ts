@@ -26,6 +26,10 @@ function joinRagApi(path: string): string {
 /** 接口地址 */
 export const api = {
   user: {
+    login: joinApi('/user/login'),
+    refresh: joinApi('/user/token/refresh'),
+    logout: joinApi('/user/logout'),
+    quota: joinApi('/user/quota'),
     detailByMobile: joinApi('/user/detail/mobile'),
     add: joinApi('/user/add'),
   },

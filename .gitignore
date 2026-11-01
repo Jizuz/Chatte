@@ -1,0 +1,5 @@
+.DS_Store
+.env
+.authfetch-build/
+dist/
+node_modules/

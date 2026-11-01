@@ -1,4 +1,5 @@
 import { api } from '../config'
+import { authFetch } from './http'
 
 interface ApiResponse<T = unknown> {
   code: number
@@ -9,21 +10,19 @@ interface ApiResponse<T = unknown> {
 export type MessageSaveType = 0 | 1
 
 export interface SaveMessageParams {
-  userId: string
   sessionId: string | null
   type: MessageSaveType
   content: string
 }
 
-/** POST /chat/message/save */
+/** POST /chat/message/save（身份取自令牌） */
 export async function saveChatMessage(params: SaveMessageParams): Promise<{ session_id: string }> {
-  const response = await fetch(api.chat.messageSave, {
+  const response = await authFetch(api.chat.messageSave, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json; charset=UTF-8',
     },
     body: JSON.stringify({
-      user_id: params.userId,
       session_id: params.sessionId,
       type: params.type,
       content: params.content,

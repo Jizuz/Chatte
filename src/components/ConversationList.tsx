@@ -74,7 +74,6 @@ export function ConversationList({
 
       try {
         const data = await fetchSessionList({
-          userId,
           page: nextPage,
           pageSize,
         })

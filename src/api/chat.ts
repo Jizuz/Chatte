@@ -1,4 +1,5 @@
 import { api } from '../config'
+import { authFetch } from './http'
 
 export interface ChatReply {
   reply: string
@@ -66,19 +67,17 @@ function parseChatReplyText(raw: string): ChatReply {
   }
 }
 
-/** 非流式版本：等待完整响应后一次性返回 */
+/** 非流式版本：等待完整响应后一次性返回（身份取自令牌，不再传 user_id） */
 export async function fetchChatReply(
   question: string,
   sessionId: string | null,
-  userId: string,
 ): Promise<ChatReply> {
   const url = new URL(api.chat.agent)
   url.searchParams.set('question', question)
   // 后端 FastAPI 定义的查询参数名为 snake_case 的 session_id（必填）
   url.searchParams.set('session_id', sessionId == null ? '' : sessionId)
-  url.searchParams.set('user_id', userId)
 
-  const response = await fetch(url.toString(), {
+  const response = await authFetch(url.toString(), {
     method: 'GET',
   })
 
@@ -226,16 +225,14 @@ async function consumeSSEStream(
 export async function streamChatReply(
   question: string,
   sessionId: string | null,
-  userId: string,
   callbacks: StreamChatCallbacks = {},
 ): Promise<ChatReply> {
   const url = new URL(api.chat.agent)
   url.searchParams.set('question', question)
   // 后端 FastAPI 定义的查询参数名为 snake_case 的 session_id（必填）
   url.searchParams.set('session_id', sessionId == null ? '' : sessionId)
-  url.searchParams.set('user_id', userId)
 
-  const response = await fetch(url.toString(), {
+  const response = await authFetch(url.toString(), {
     method: 'GET',
     headers: { Accept: 'text/event-stream' },
     signal: callbacks.signal,

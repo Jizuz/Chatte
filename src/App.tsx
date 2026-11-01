@@ -62,7 +62,7 @@ function App() {
     // 只关闭登录后创建的新会话，不关闭历史会话
     if (user && newSessionId) {
       try {
-        await closeSession({ userId: user.id, sessionId: newSessionId })
+        await closeSession({ sessionId: newSessionId })
       } catch (error) {
         console.warn('关闭新会话失败:', error)
       }
@@ -97,19 +97,19 @@ function App() {
 
     // 历史会话：从数据库加载历史消息
     if (selectedSession && user) {
-      await loadSessionHistory(user.id, sessionId)
+      await loadSessionHistory(sessionId)
     } else {
       // 新会话（不是历史会话），清空该会话的消息
       setMessages((prev) => prev.filter((m) => m.conversationId !== sessionId))
     }
   }
 
-  const loadSessionHistory = async (userId: string, sessionId: string) => {
+  const loadSessionHistory = async (sessionId: string) => {
     if (!user) return
-    
+
     setLoadingHistory(true)
     try {
-      const historyData = await fetchSessionHistory({ userId, sessionId })
+      const historyData = await fetchSessionHistory({ sessionId })
       
       // 清空该会话的现有消息
       setMessages((prev) => prev.filter((m) => m.conversationId !== sessionId))
@@ -186,7 +186,6 @@ function App() {
   ): Promise<{ session_id: string } | undefined> => {
     if (!user) return undefined
     const savedData = await saveChatMessage({
-      userId: user.id,
       sessionId,
       type,
       content,
@@ -255,7 +254,7 @@ function App() {
     streamAbortRef.current = controller
 
     try {
-      const { reply } = await streamChatReply(content, agentSessionId, user.id, {
+      const { reply } = await streamChatReply(content, agentSessionId, {
         signal: controller.signal,
         onDelta: (delta) => {
           streamed += delta
